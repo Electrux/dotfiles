@@ -9,13 +9,19 @@ TIMEZONE="America/Vancouver"
 LOCALE="en_US.UTF-8"
 USERNAME="<username>"
 FULLNAME="<Full Name>"
-PASSWORD="<a-super-secure-password-here>"
+PASSWORD=""
 SSH_KEY1="<a public SSH key which will be used to login with the newly created account>"
 SSH_KEY2="<another public SSH key which will be used to login with the newly created account>"
-USE_PACKAGE_CACHE="true" # Must be true even on the package server machine
-PACKAGE_CACHE_SERVER="http://pkg-cache:9129/repo/archlinux" # Custom package cache server, only used if USE_PACKAGE_CACHE == 'true'
+SSH_KEY3=""
+SSH_KEY4=""
+PACKAGE_CACHE_SERVER="http://overlord:9129/repo/archlinux" # Custom package cache server, only used if not empty
 
 NPROC="$(nproc)"
+
+if [[ "$PASSWORD" == "" ]]; then
+	echo -e "\e[95m\e[1m==>> Generating password for user $USERNAME ...\e[0m"
+	PASSWORD="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 64)"
+fi
 
 set -e
 
@@ -58,7 +64,7 @@ EXTRA_PKGS=""
 if [[ "$USE_GRUB" == "true" ]]; then
 	EXTRA_PKGS="${EXTRA_PKGS} grub"
 fi
-pacstrap -K /mnt base base-devel linux$KERNEL_VARIANT linux$KERNEL_VARIANT-headers linux-firmware dkms zsh fish fzf fastfetch neovim less bat openssh git ccache keychain eza man-db cronie cmake $EXTRA_PKGS
+pacstrap -K /mnt base base-devel linux$KERNEL_VARIANT linux$KERNEL_VARIANT-headers linux-firmware dkms zsh fish fzf fastfetch neovim tree-sitter-cli unzip less bat openssh git ccache keychain eza man-db cronie cmake $EXTRA_PKGS
 
 echo -e "\e[95m\e[1m==>> Generating mountpoints in fstab using genfstab ...\e[0m"
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -103,14 +109,12 @@ else
 	) > /boot/loader/entries/$HOSTNAME.conf
 fi
 
-echo -e "\e[95m\e[1m====>> Setting up vimrc for root ...\e[0m"
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/dotvimrc > /root/.vimrc
-mkdir -p /root/.config/nvim
-cp /root/.vimrc /root/.config/nvim/init.vim
+echo -e "\e[95m\e[1m====>> Setting up neovim for root ...\e[0m"
+git clone https://github.com/Chirag-Khandelwal/nvim /root/.config/nvim
 
 echo -e "\e[95m\e[1m====>> Setting up profile.d config ...\e[0m"
 mkdir -p /etc/profile.d
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/profile.d/99-custom-config.sh > /etc/profile.d/99-custom-config.sh
+curl -sL https://raw.githubusercontent.com/Chirag-Khandelwal/dotfiles/refs/heads/main/etc/profile.d/99-custom-vars.sh > /etc/profile.d/99-custom-vars.sh
 
 echo -e "\e[95m\e[1m====>> Creating admin user $USERNAME ...\e[0m"
 useradd -mG wheel -s /bin/zsh -c "$FULLNAME" $USERNAME
@@ -119,20 +123,18 @@ echo "$USERNAME:$PASSWORD" | chpasswd
 echo -e "\e[95m\e[1m====>> Setting up $USERNAME's shell and vim config ...\e[0m"
 
 echo -e "\e[95m\e[1m======>> Setting up zsh shell ...\e[0m"
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/dotzshrc > /home/$USERNAME/.zshrc
+curl -sL https://raw.githubusercontent.com/Chirag-Khandelwal/dotfiles/refs/heads/main/.zshrc > /home/$USERNAME/.zshrc
 # chown is done after vimrc
 echo -e "\e[95m\e[1m======>> Setting up fish shell ...\e[0m"
 mkdir -p /home/$USERNAME/.config/fish/functions
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/fish_functions/l.fish > /home/$USERNAME/.config/fish/functions/l.fish
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/fish_functions/t.fish > /home/$USERNAME/.config/fish/functions/t.fish
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/fish_functions/ccd.fish > /home/$USERNAME/.config/fish/functions/ccd.fish
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/config.fish > /home/$USERNAME/.config/fish/config.fish
-# chown is done after vimrc
-echo -e "\e[95m\e[1m======>> Setting up (n)vimrc ...\e[0m"
-mkdir -p /home/$USERNAME/.config/nvim
-curl -sL https://raw.githubusercontent.com/Electrux/dotfiles/main/dotvimrc > /home/$USERNAME/.vimrc
-cp /home/$USERNAME/.vimrc /home/$USERNAME/.config/nvim/init.vim
-chown -R $USERNAME:$USERNAME /home/$USERNAME/.zshrc /home/$USERNAME/.config /home/$USERNAME/.vimrc
+curl -sL https://raw.githubusercontent.com/Chirag-Khandelwal/dotfiles/refs/heads/main/.config/fish/functions/l.fish > /home/$USERNAME/.config/fish/functions/l.fish
+curl -sL https://raw.githubusercontent.com/Chirag-Khandelwal/dotfiles/refs/heads/main/.config/fish/functions/t.fish > /home/$USERNAME/.config/fish/functions/t.fish
+curl -sL https://raw.githubusercontent.com/Chirag-Khandelwal/dotfiles/refs/heads/main/.config/fish/functions/ccd.fish > /home/$USERNAME/.config/fish/functions/ccd.fish
+curl -sL https://raw.githubusercontent.com/Chirag-Khandelwal/dotfiles/refs/heads/main/.config/fish/config.fish > /home/$USERNAME/.config/fish/config.fish
+# chown is done after nvim setup
+echo -e "\e[95m\e[1m======>> Setting up neovim ...\e[0m"
+git clone https://github.com/Chirag-Khandelwal/nvim /home/$USERNAME/.config/nvim
+chown -R $USERNAME:$USERNAME /home/$USERNAME/.zshrc /home/$USERNAME/.config
 
 echo -e "\e[95m\e[1m====>> Enabling no password sudo for users in wheel group ...\e[0m"
 echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel-nopasswd
@@ -161,6 +163,12 @@ echo "$SSH_KEY1" > /home/$USERNAME/.ssh/authorized_keys
 if [[ "$SSH_KEY2" != "" ]]; then
 	echo "$SSH_KEY2" >> /home/$USERNAME/.ssh/authorized_keys
 fi
+if [[ "$SSH_KEY3" != "" ]]; then
+	echo "$SSH_KEY3" >> /home/$USERNAME/.ssh/authorized_keys
+fi
+if [[ "$SSH_KEY4" != "" ]]; then
+	echo "$SSH_KEY4" >> /home/$USERNAME/.ssh/authorized_keys
+fi
 chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
 chmod 0600 /home/$USERNAME/.ssh/authorized_keys
 
@@ -174,9 +182,9 @@ cd && cd git/Feral/build && PREFIX_DIR='/usr' cmake .. -DCMAKE_BUILD_TYPE=Releas
 feral pkgbootstrap
 feral pkg i curl ntfy emoji whattodo
 
-if [[ "$USE_PACKAGE_CACHE" == "true" ]]; then
+if [[ "$PACKAGE_CACHE_SERVER" != "" ]]; then
 	echo -e "\e[95m\e[1m====>> Setting up package cache server ...\e[0m"
-	echo '$PACKAGE_CACHE_SERVER/\$repo/os/\$arch' | cat - /etc/pacman.d/mirrorlist > temp && mv temp /etc/pacman.d/mirrorlist
+	echo 'Server = $PACKAGE_CACHE_SERVER/\$repo/os/\$arch' | cat - /etc/pacman.d/mirrorlist > temp && mv temp /etc/pacman.d/mirrorlist
 fi
 
 echo -e "\e[95m\e[1m====>> Setting up AUR Helper: paru ...\e[0m"
@@ -189,4 +197,5 @@ EOF
 echo -e "\e[95m\e[1m==>> Link /etc/resolv.conf to systemd-resolved's stub ...\e[0m"
 ln -sf ../run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
 
+echo -e "\e[96m\e[1m==>> User ${USERNAME}'s password: ${PASSWORD}"
 echo -e "\e[95m\e[1m==>> Installation Finished!!!\e[0m"
